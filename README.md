@@ -34,6 +34,22 @@ claude plugin marketplace update webhejj
 claude plugin update atlas@webhejj
 ```
 
+## Command line tools outside a session
+
+Inside a session Claude Code puts an enabled plugin's `bin/` on the PATH. For a terminal, a build or
+another agent, put shims into `~/.local/bin` once per plugin:
+
+```bash
+~/.claude/plugins/marketplaces/webhejj/scripts/install-cli atlas
+```
+
+Each shim looks the plugin up in `~/.claude/plugins/installed_plugins.json` when it runs, preferring
+the user-scope install, and runs that copy's `bin/<tool>`. The terminal therefore runs what sessions
+run, and an update needs no second step. It reads the file with `jq`, or `python3` where there is no
+`jq`. An existing file in `~/.local/bin` is replaced only when it is one of these shims or a link into
+an older `~/.claude/skills/<plugin>` copy; `--force` replaces anything, `--dry-run` shows what would
+happen.
+
 ## Testing a change before it is pushed
 
 Start a session with the working copy:

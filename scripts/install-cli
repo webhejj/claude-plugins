@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Put an installed plugin's command line tools on your PATH, outside Claude Code sessions.
+#
+# Inside a session Claude Code puts an enabled plugin's bin/ on PATH by itself. A terminal, a
+# build or another agent has no such help, and the installed copy moves with every update:
+# ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/. So this writes, for each file in the
+# plugin's bin/, a small shim into ~/.local/bin that looks the install up in
+# installed_plugins.json each time it runs and execs that copy. The terminal then runs exactly what
+# sessions run, and `claude plugin update` needs no second step.
+#
+# Usage:  scripts/install-cli <plugin>[@<marketplace>] [--bin-dir <dir>] [--force] [--dry-run]
+#         scripts/install-cli atlas            # same as atlas@webhejj
+#
+# The marketplace defaults to webhejj. The plugin has to be installed already. An existing file in
+# the bin directory is replaced only when it is one of these shims or a symlink into a copy of the
+# same plugin under ~/.claude/skills; anything else needs --force.
+set -euo pipefail
+
+MARKER="# claude-plugins shim"
+CONFIG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+BIN="${XDG_BIN_HOME:-$HOME/.local/bin}"
+ID="" FORCE="" DRY=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --bin-dir) BIN="$2"; shift 2 ;;
+    --force) FORCE=1; shift ;;
+    --dry-run) DRY=1; shift ;;
+    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -*) echo "unknown option: $1" >&2; exit 2 ;;
+    *) [[ -z "$ID" ]] || { echo "one plugin at a time" >&2; exit 2; }; ID="$1"; shift ;;
+  esac
+done
+[[ -n "$ID" ]] || { echo "usage: scripts/install-cli <plugin>[@<marketplace>]" >&2; exit 2; }
+[[ "$ID" == *@* ]] || ID="$ID@webhejj"
+NAME="${ID%@*}"
+
+# The install a CLI should run: the user-scope one when there is one, else the first recorded.
+install_path() {
+  local file="$CONFIG/plugins/installed_plugins.json"
+  [[ -f "$file" ]] || return 0
+  if command -v jq >/dev/null 2>&1; then
+    jq -r --arg id "$1" '(.plugins[$id] // []) | (map(select(.scope == "user")) + .) | .[0].installPath // empty' "$file"
+  else
+    python3 - "$file" "$1" <<'PY'
+import json, sys
+installs = json.load(open(sys.argv[1])).get("plugins", {}).get(sys.argv[2], [])
+installs = [i for i in installs if i.get("scope") == "user"] + installs
+print(installs[0]["installPath"] if installs else "")
+PY
+  fi
+}
+
+ROOT="$(install_path "$ID")"
+if [[ -z "$ROOT" || ! -d "$ROOT" ]]; then
+  echo "$ID is not installed. Install it first:  claude plugin install $ID" >&2
+  exit 1
+fi
+CLIS=()
+for f in "$ROOT"/bin/*; do [[ -f "$f" && -x "$f" ]] && CLIS+=("$(basename "$f")"); done
+if [[ ${#CLIS[@]} -eq 0 ]]; then
+  echo "$ID has no executables in bin/; nothing to put on PATH."
+  exit 0
+fi
+
+ours() { # $1: an existing path in the bin directory
+  if [[ -L "$1" ]]; then
+    [[ "$(readlink "$1")" == "$HOME/.claude/skills/$NAME/"* ]]
+  else
+    grep -qF "$MARKER" "$1" 2>/dev/null
+  fi
+}
+
+[[ -n "$DRY" ]] || mkdir -p "$BIN"
+for cli in "${CLIS[@]}"; do
+  dest="$BIN/$cli"
+  if [[ -e "$dest" || -L "$dest" ]] && ! ours "$dest" && [[ -z "$FORCE" ]]; then
+    echo "skipped $dest: something else is there (--force replaces it)"
+    continue
+  fi
+  if [[ -n "$DRY" ]]; then echo "would write $dest -> bin/$cli of $ID"; continue; fi
+  rm -f "$dest"
+  cat > "$dest" <<SHIM
+#!/usr/bin/env bash
+$MARKER: runs bin/$cli of the installed $ID. Written by scripts/install-cli.
+set -euo pipefail
+id='$ID'
+file="\${CLAUDE_CONFIG_DIR:-\$HOME/.claude}/plugins/installed_plugins.json"
+if command -v jq >/dev/null 2>&1; then
+  root="\$(jq -r --arg id "\$id" '(.plugins[\$id] // []) | (map(select(.scope == "user")) + .) | .[0].installPath // empty' "\$file" 2>/dev/null || true)"
+else
+  root="\$(python3 -c 'import json,sys
+i=json.load(open(sys.argv[1])).get("plugins",{}).get(sys.argv[2],[])
+i=[x for x in i if x.get("scope")=="user"]+i
+print(i[0]["installPath"] if i else "")' "\$file" "\$id" 2>/dev/null || true)"
+fi
+if [[ -z "\$root" || ! -x "\$root/bin/$cli" ]]; then
+  echo "$cli: \$id is not installed; run  claude plugin install \$id" >&2
+  exit 127
+fi
+exec "\$root/bin/$cli" "\$@"
+SHIM
+  chmod +x "$dest"
+  echo "wrote $dest -> bin/$cli of $ID"
+done
+case ":$PATH:" in *":$BIN:"*) ;; *) echo "note: $BIN is not on your PATH" ;; esac
