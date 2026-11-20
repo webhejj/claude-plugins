@@ -1,0 +1,39 @@
+{
+  "name": "webhejj",
+  "owner": {
+    "name": "webhejj",
+    "url": "https://github.com/webhejj"
+  },
+  "metadata": {
+    "description": "Claude Code plugins from webhejj. Each plugin lives in its own repository; this one only lists them."
+  },
+  "plugins": [
+    {
+      "name": "awt",
+      "source": {
+        "source": "github",
+        "repo": "webhejj/agent-wiki-toolbox"
+      },
+      "description": "Work with a wikilinked markdown wiki through the agent-wiki-toolbox: the link graph, structural edits that keep it intact, formatting, and the guard that routes wiki work through the skill.",
+      "homepage": "https://github.com/webhejj/agent-wiki-toolbox"
+    },
+    {
+      "name": "atlas",
+      "source": {
+        "source": "github",
+        "repo": "webhejj/atlas-plugin"
+      },
+      "description": "Keep and use an atlas catalog: the entry schemas an atlas repo validates against, the atlas command line, and a session-start hook that says what the catalog has at the session's directory.",
+      "homepage": "https://github.com/webhejj/atlas-plugin"
+    },
+    {
+      "name": "duckdb-skills",
+      "source": {
+        "source": "github",
+        "repo": "gnagy/duckdb-skills"
+      },
+      "description": "A fork of DuckDB's own duckdb-skills plugin with bug fixes: read any data file, attach and query DuckDB databases, search DuckDB and DuckLake docs, and install DuckDB extensions.",
+      "homepage": "https://github.com/gnagy/duckdb-skills"
+    }
+  ]
+}
